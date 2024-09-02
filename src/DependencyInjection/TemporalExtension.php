@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Atantares\TemporalBundle\DependencyInjection;
 
+use Atantares\TemporalBundle\ScheduleClientFactory;
 use Atantares\TemporalBundle\WorkerFactory;
 use Atantares\TemporalBundle\WorkflowClientFactory;
 use Atantares\TemporalBundle\WorkflowClientFactoryInterface;
@@ -14,6 +15,7 @@ use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\DependencyInjection\Reference;
 use Temporal\Client\ClientOptions;
+use Temporal\Client\ScheduleClient;
 use Temporal\Client\WorkflowClient;
 use Temporal\DataConverter\DataConverterInterface;
 use Temporal\Worker\WorkerFactoryInterface;
@@ -30,6 +32,7 @@ final class TemporalExtension extends Extension
 
         $options = $config['workflow_client']['options'] ?? [];
         $workflowClientFactoryClass = $config['workflow_client']['factory'] ?? WorkflowClientFactory::class;
+        $scheduleClientFactoryClass = ScheduleClientFactory::class;
         $dataConverterConverters = $config['worker']['data_converter']['converters'];
         $workerFactory = $config['worker']['factory'] ?? WorkerFactory::class;
         $dataConverterClass = $config['worker']['data_converter']['class'];
@@ -81,11 +84,22 @@ final class TemporalExtension extends Extension
             );
         }
 
+        if (!$container->hasDefinition($scheduleClientFactoryClass)) {
+            $container->setDefinition($scheduleClientFactoryClass, (new Definition($scheduleClientFactoryClass))
+                ->setPublic(true)->setAutowired(true)->setAutoconfigured(true)
+                ->addMethodCall('setDataConverter', [new Reference($dataConverterClass)])
+                ->addMethodCall('setAddress', [$temporalRpcAddress])
+                ->addMethodCall('setOptions', [$options])
+            );
+        }
+
         $workerFactory = str_contains('::', $workerFactory) ? $workerFactory : new Reference($workerFactoryClass);
         $container->register(TemporalWorkerFactory::class, TemporalWorkerFactory::class)
             ->setFactory($workerFactory);
         $container->register(WorkflowClient::class, WorkflowClient::class)
             ->setFactory([new Reference($workflowClientFactoryClass), '__invoke']);
+        $container->register(ScheduleClient::class, ScheduleClient::class)
+            ->setFactory([new Reference($scheduleClientFactoryClass), '__invoke']);
 
         $container->setAlias(WorkerFactoryInterface::class, TemporalWorkerFactory::class);
 

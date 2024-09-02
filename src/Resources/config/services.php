@@ -18,4 +18,5 @@ return static function (ContainerConfigurator $configurator): void {
         ->arg('$kernel', service('kernel'))
         ->tag('console.command');
     $services->alias(Temporal\Client\WorkflowClientInterface::class, Temporal\Client\WorkflowClient::class);
+    $services->alias(Temporal\Client\ScheduleClientInterface::class, Temporal\Client\ScheduleClient::class);
 };
