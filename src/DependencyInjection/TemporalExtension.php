@@ -38,7 +38,7 @@ final class TemporalExtension extends Extension
 /**
  * @internal
  */
-function workflowConfigurator(ChildDefinition $definition, Workflow $attribute, Reflector $reflector): void
+function workflowConfigurator(ChildDefinition $definition, WorkflowInterface $attribute, Reflector $reflector): void
 {
     if (!$reflector instanceof ReflectionClass) {
         return;
@@ -58,7 +58,7 @@ function workflowConfigurator(ChildDefinition $definition, Workflow $attribute, 
 /**
  * @internal
  */
-function activityConfigurator(ChildDefinition $definition, Activity $attribute, Reflector $reflector): void
+function activityConfigurator(ChildDefinition $definition, ActivityInterface $attribute, Reflector $reflector): void
 {
     if (!$reflector instanceof ReflectionClass) {
         return;
