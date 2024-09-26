@@ -4,110 +4,73 @@ declare(strict_types=1);
 
 namespace Atantares\TemporalBundle\DependencyInjection;
 
-use Atantares\TemporalBundle\ScheduleClientFactory;
-use Atantares\TemporalBundle\WorkerFactory;
-use Atantares\TemporalBundle\WorkflowClientFactory;
-use Atantares\TemporalBundle\WorkflowClientFactoryInterface;
+use Exception;
+use ReflectionClass;
+use Reflector;
 use Symfony\Component\Config\FileLocator;
+use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
-use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
-use Symfony\Component\DependencyInjection\Reference;
-use Temporal\Client\ClientOptions;
-use Temporal\Client\ScheduleClient;
-use Temporal\Client\WorkflowClient;
-use Temporal\DataConverter\DataConverterInterface;
-use Temporal\Worker\WorkerFactoryInterface;
-use Temporal\WorkerFactory as TemporalWorkerFactory;
-use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use Temporal\Activity\ActivityInterface;
+use Temporal\Workflow\WorkflowInterface;
 
 final class TemporalExtension extends Extension
 {
-    public const TEMPORAL_OPTIONS_SERVICE_ID = 'temporal.workflow_client.options';
-
+    /**
+     * @throws Exception
+     */
     public function load(array $configs, ContainerBuilder $container): void
     {
-        $config = $this->processConfiguration(new Configuration(), $configs);
+        $loader = new PhpFileLoader($container, new FileLocator(__DIR__ . '/../../config'));
 
-        $options = $config['workflow_client']['options'] ?? [];
-        $workflowClientFactoryClass = $config['workflow_client']['factory'] ?? WorkflowClientFactory::class;
-        $scheduleClientFactoryClass = ScheduleClientFactory::class;
-        $dataConverterConverters = $config['worker']['data_converter']['converters'];
-        $workerFactory = $config['worker']['factory'] ?? WorkerFactory::class;
-        $dataConverterClass = $config['worker']['data_converter']['class'];
-        $queue = $config['worker']['queue'] ?? 'default';
-        $namespace = $options['namespace'] ?? 'default';
-        $temporalRpcAddress = $config['address'];
+        $loader->load('service.php');
 
-        $container->setParameter('temporal.worker.queue', $queue);
-        $container->setParameter('temporal.address', $temporalRpcAddress);
-        $container->setParameter('temporal.namespace', $namespace);
+        $configuration = new Configuration();
 
-        if (!is_a($workflowClientFactoryClass, WorkflowClientFactoryInterface::class, true)) {
-            throw new \RuntimeException(\sprintf('Class "%s" should implemenets "%s" interface.', $workflowClientFactoryClass, WorkflowClientFactoryInterface::class));
-        }
-
-        [$workerFactoryClass] = explode('::', $workerFactory);
-        if (!$container->hasDefinition($workerFactoryClass)) {
-            $container->setDefinition($workerFactoryClass, (new Definition($workerFactoryClass))
-                ->setPublic(true)->setAutowired(true)->setAutoconfigured(true)
-                ->setArgument('$dataConverter', new Reference($dataConverterClass))
-            );
-        }
-
-        $dataConverterDefinition = $container->register($dataConverterClass, $dataConverterClass);
-        $serviceConverters = [];
-        foreach ($dataConverterConverters as $converterId) {
-            if (class_exists($converterId) && !$container->hasDefinition($converterId)) {
-                $container->setDefinition($converterId, (new Definition($converterId))
-                    ->setAutoconfigured(true)
-                    ->setAutowired(true)
-                    ->setPublic(true)
-                );
-            }
-
-            $serviceConverters[] = new Reference($converterId);
-        }
-        $dataConverterDefinition->setArguments($serviceConverters);
-
-        if (!$container->hasAlias(DataConverterInterface::class)) {
-            $container->setAlias(DataConverterInterface::class, $dataConverterClass);
-        }
-
-        if (!$container->hasDefinition($workflowClientFactoryClass)) {
-            $container->setDefinition($workflowClientFactoryClass, (new Definition($workflowClientFactoryClass))
-                ->setPublic(true)->setAutowired(true)->setAutoconfigured(true)
-                ->addMethodCall('setDataConverter', [new Reference($dataConverterClass)])
-                ->addMethodCall('setAddress', [$temporalRpcAddress])
-                ->addMethodCall('setOptions', [$options])
-            );
-        }
-
-        if (!$container->hasDefinition($scheduleClientFactoryClass)) {
-            $container->setDefinition($scheduleClientFactoryClass, (new Definition($scheduleClientFactoryClass))
-                ->setPublic(true)->setAutowired(true)->setAutoconfigured(true)
-                ->addMethodCall('setDataConverter', [new Reference($dataConverterClass)])
-                ->addMethodCall('setAddress', [$temporalRpcAddress])
-                ->addMethodCall('setOptions', [$options])
-            );
-        }
-
-        $workerFactory = str_contains('::', $workerFactory) ? $workerFactory : new Reference($workerFactoryClass);
-        $container->register(TemporalWorkerFactory::class, TemporalWorkerFactory::class)
-            ->setFactory($workerFactory);
-        $container->register(WorkflowClient::class, WorkflowClient::class)
-            ->setFactory([new Reference($workflowClientFactoryClass), '__invoke']);
-        $container->register(ScheduleClient::class, ScheduleClient::class)
-            ->setFactory([new Reference($scheduleClientFactoryClass), '__invoke']);
-
-        $container->setAlias(WorkerFactoryInterface::class, TemporalWorkerFactory::class);
-
-        $loader = new PhpFileLoader($container, new FileLocator(__DIR__ . '/../Resources/config'));
-        $loader->load('services.php');
-
-        if (!$container->hasDefinition($dataConverterClass)) {
-            throw new \LogicException('Data Converter Class "%s" should be registered.');
-        }
+        $container->setParameter('temporal.config', $this->processConfiguration($configuration, $configs));
+        $container->registerAttributeForAutoconfiguration(WorkflowInterface::class, workflowConfigurator(...));
+        $container->registerAttributeForAutoconfiguration(ActivityInterface::class, activityConfigurator(...));
     }
 }
+
+
+/**
+ * @internal
+ */
+function workflowConfigurator(ChildDefinition $definition, Workflow $attribute, Reflector $reflector): void
+{
+    if (!$reflector instanceof ReflectionClass) {
+        return;
+    }
+
+    $assignWorkers = getWorkers($reflector);
+    $attributes    = [];
+
+    if (!empty($assignWorkers)) {
+        $attributes['workers'] = $assignWorkers;
+    }
+
+    $definition->addTag('temporal.workflow', $attributes);
+}
+
+
+/**
+ * @internal
+ */
+function activityConfigurator(ChildDefinition $definition, Activity $attribute, Reflector $reflector): void
+{
+    if (!$reflector instanceof ReflectionClass) {
+        return;
+    }
+
+    $assignWorkers = getWorkers($reflector);
+    $attributes    = ['prefix' => $attribute->prefix];
+
+    if (!empty($assignWorkers)) {
+        $attributes['workers'] = $assignWorkers;
+    }
+
+    $definition->addTag('temporal.activity', $attributes);
+}
+
