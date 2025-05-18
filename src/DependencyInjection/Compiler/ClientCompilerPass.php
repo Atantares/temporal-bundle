@@ -8,6 +8,7 @@ use Atantares\TemporalBundle\Command\ClientDebugCommand;
 use Atantares\TemporalBundle\DependencyInjection\Configuration;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface as CompilerPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 use Temporal\Client\ClientOptions;
 use Temporal\Client\GRPC\ServiceClient as GrpcServiceClient;
@@ -16,8 +17,6 @@ use Temporal\Client\WorkflowClient as GrpcWorkflowClient;
 use Temporal\Client\WorkflowClientInterface as WorkflowClient;
 
 use Temporal\Interceptor\SimplePipelineProvider;
-
-use function Atantares\TemporalBundle\DependencyInjection\definition;
 
 /**
  * @phpstan-import-type RawConfiguration from Configuration
@@ -31,7 +30,7 @@ final class ClientCompilerPass implements CompilerPass
         $clients = [];
 
         foreach ($config['clients'] as $name => $client) {
-            $options = definition(ClientOptions::class)
+            $options = (new Definition((ClientOptions::class)))
                 ->addMethodCall('withNamespace', [$client['namespace']], true);
 
             if ($client['identity'] ?? false) {
@@ -45,17 +44,17 @@ final class ClientCompilerPass implements CompilerPass
 
             $id = sprintf('temporal.%s.client', $name);
 
-            $serviceClient = definition(ServiceClient::class, [$client['address']])
+            $serviceClient = (new Definition(ServiceClient::class, [$client['address']]))
                 ->setFactory([GrpcServiceClient::class, 'create']);
 
             if (($client['clientKey'] ?? false) && ($client['clientPem'] ?? false)) {
-                $serviceClient = definition(ServiceClient::class, [
+                $serviceClient = (new Definition(ServiceClient::class, [
                     $client['address'],
                     null, // root CA - Not required for Temporal Cloud
                     $client['clientKey'],
                     $client['clientPem'],
                     null, // Overwrite server name
-                ])
+                ]))
                     ->setFactory([GrpcServiceClient::class, 'createSSL']);
             }
 
@@ -65,13 +64,13 @@ final class ClientCompilerPass implements CompilerPass
                     '$serviceClient'       => $serviceClient,
                     '$options'             => $options,
                     '$converter'           => new Reference($client['dataConverter']),
-                    '$interceptorProvider' => definition(SimplePipelineProvider::class)
+                    '$interceptorProvider' => (new Definition((SimplePipelineProvider::class)))
                         ->setArguments([
                             array_map(static fn (string $id): Reference => new Reference($id), $client['interceptors']),
                         ]),
                 ]);
 
-            if ($name == $config['defaultClient']) {
+            if ($name === $config['defaultClient']) {
                 $container->setAlias(WorkflowClient::class, $id);
             }
 

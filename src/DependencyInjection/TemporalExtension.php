@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Atantares\TemporalBundle\DependencyInjection;
 
-use Exception;
-use ReflectionClass;
-use Reflector;
+use Atantares\TemporalBundle\Attribute\AssignWorker;
 use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -18,7 +16,7 @@ use Temporal\Workflow\WorkflowInterface;
 final class TemporalExtension extends Extension
 {
     /**
-     * @throws Exception
+     * @throws \Exception
      */
     public function load(array $configs, ContainerBuilder $container): void
     {
@@ -29,48 +27,51 @@ final class TemporalExtension extends Extension
         $configuration = new Configuration();
 
         $container->setParameter('temporal.config', $this->processConfiguration($configuration, $configs));
-        $container->registerAttributeForAutoconfiguration(WorkflowInterface::class, workflowConfigurator(...));
-        $container->registerAttributeForAutoconfiguration(ActivityInterface::class, activityConfigurator(...));
+        $container->registerAttributeForAutoconfiguration(WorkflowInterface::class, $this->workflowConfigurator(...));
+        $container->registerAttributeForAutoconfiguration(ActivityInterface::class, $this->activityConfigurator(...));
+    }
+
+    private function workflowConfigurator(ChildDefinition $definition, WorkflowInterface $attribute, \Reflector $reflector): void
+    {
+        if (!$reflector instanceof \ReflectionClass) {
+            return;
+        }
+
+        $assignWorkers = $this->getWorkers($reflector);
+        $attributes    = [];
+
+        if (!empty($assignWorkers)) {
+            $attributes['workers'] = $assignWorkers;
+        }
+
+        $definition->addTag('temporal.workflow', $attributes);
+    }
+
+    private function activityConfigurator(ChildDefinition $definition, ActivityInterface $attribute, \Reflector $reflector): void
+    {
+        if (!$reflector instanceof \ReflectionClass) {
+            return;
+        }
+
+        $assignWorkers = $this->getWorkers($reflector);
+        $attributes    = ['prefix' => $attribute->prefix];
+
+        if (!empty($assignWorkers)) {
+            $attributes['workers'] = $assignWorkers;
+        }
+
+        $definition->addTag('temporal.activity', $attributes);
+    }
+
+    /**
+     * @return array<int, non-empty-string>
+     */
+    private function getWorkers(\ReflectionClass $reflectionClass): array
+    {
+        $workers = array_map(static function (\ReflectionAttribute $reflectionAttribute): string {
+            return $reflectionAttribute->newInstance()->name;
+        }, $reflectionClass->getAttributes(AssignWorker::class));
+
+        return array_unique($workers);
     }
 }
-
-
-/**
- * @internal
- */
-function workflowConfigurator(ChildDefinition $definition, WorkflowInterface $attribute, Reflector $reflector): void
-{
-    if (!$reflector instanceof ReflectionClass) {
-        return;
-    }
-
-    $assignWorkers = getWorkers($reflector);
-    $attributes    = [];
-
-    if (!empty($assignWorkers)) {
-        $attributes['workers'] = $assignWorkers;
-    }
-
-    $definition->addTag('temporal.workflow', $attributes);
-}
-
-
-/**
- * @internal
- */
-function activityConfigurator(ChildDefinition $definition, ActivityInterface $attribute, Reflector $reflector): void
-{
-    if (!$reflector instanceof ReflectionClass) {
-        return;
-    }
-
-    $assignWorkers = getWorkers($reflector);
-    $attributes    = ['prefix' => $attribute->prefix];
-
-    if (!empty($assignWorkers)) {
-        $attributes['workers'] = $assignWorkers;
-    }
-
-    $definition->addTag('temporal.activity', $attributes);
-}
-

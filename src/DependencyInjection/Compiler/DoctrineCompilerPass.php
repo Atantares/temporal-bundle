@@ -10,9 +10,8 @@ use Atantares\TemporalBundle\Interceptor\DoctrineActivityInboundInterceptor;
 use Doctrine\ORM\EntityManager;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface as CompilerPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
-
-use function Atantares\TemporalBundle\DependencyInjection\definition;
 
 final class DoctrineCompilerPass implements CompilerPass
 {
@@ -44,7 +43,7 @@ final class DoctrineCompilerPass implements CompilerPass
 
             $container->register($interceptorId, DoctrineActivityInboundInterceptor::class)
                 ->setArguments([
-                    definition(DoctrinePingConnectionFinalizer::class)
+                    (new Definition(DoctrinePingConnectionFinalizer::class))
                         ->setArguments([
                             new Reference('doctrine'),
                             $entityManager,

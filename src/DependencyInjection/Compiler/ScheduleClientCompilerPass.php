@@ -1,10 +1,4 @@
 <?php
-/**
- * Temporal Bundle
- *
- * @author Vlad Shashkov <v.shashkov@pos-credit.ru>
- * @copyright Copyright (c) 2023, The Vanta
- */
 
 declare(strict_types=1);
 
@@ -14,14 +8,13 @@ use Atantares\TemporalBundle\Command\ScheduleClientDebugCommand;
 use Atantares\TemporalBundle\DependencyInjection\Configuration;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface as CompilerPass;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 use Temporal\Client\ClientOptions;
 use Temporal\Client\GRPC\ServiceClient as GrpcServiceClient;
 use Temporal\Client\GRPC\ServiceClientInterface as ServiceClient;
 use Temporal\Client\ScheduleClient as GrpcScheduleClient;
 use Temporal\Client\ScheduleClientInterface as ScheduleClient;
-
-use function Atantares\TemporalBundle\DependencyInjection\definition;
 
 /**
  * @phpstan-import-type RawConfiguration from Configuration
@@ -35,7 +28,7 @@ final class ScheduleClientCompilerPass implements CompilerPass
         $clients = [];
 
         foreach ($config['scheduleClients'] as $name => $client) {
-            $options = definition(ClientOptions::class)
+            $options = (new Definition(ClientOptions::class))
                 ->addMethodCall('withNamespace', [$client['namespace']], true);
 
             if ($client['identity'] ?? false) {
@@ -52,7 +45,7 @@ final class ScheduleClientCompilerPass implements CompilerPass
             $container->register($id, ScheduleClient::class)
                 ->setFactory([GrpcScheduleClient::class, 'create'])
                 ->setArguments([
-                    '$serviceClient' => definition(ServiceClient::class, [$client['address']])
+                    '$serviceClient' => (new Definition(ServiceClient::class, [$client['address']]))
                         ->setFactory([GrpcServiceClient::class, 'create']),
 
                     '$options'   => $options,

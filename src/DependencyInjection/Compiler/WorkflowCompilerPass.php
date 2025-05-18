@@ -10,7 +10,6 @@ use Atantares\TemporalBundle\Command\WorkflowDebugCommand;
 use Atantares\TemporalBundle\DependencyInjection\Configuration;
 use Atantares\TemporalBundle\Environment;
 use Atantares\TemporalBundle\Runtime\Runtime;
-use Closure;
 use Spiral\RoadRunner\Environment as RoadRunnerEnvironment;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface as CompilerPass;
@@ -22,7 +21,6 @@ use Temporal\Worker\Transport\Goridge;
 use Temporal\Worker\Worker;
 use Temporal\Worker\WorkerOptions;
 use Temporal\WorkerFactory;
-use function Atantares\TemporalBundle\DependencyInjection\definition;
 
 /**
  * @phpstan-import-type RawConfiguration from Configuration
@@ -38,27 +36,30 @@ final class WorkflowCompilerPass implements CompilerPass
             ->setFactory([WorkerFactory::class, 'create'])
             ->setArguments([
                 new Reference($config['pool']['dataConverter']),
-                definition(Goridge::class)
+                (new Definition(Goridge::class))
                     ->setFactory([Goridge::class, 'create'])
                     ->setArguments([
-                        definition(RoadRunnerEnvironment::class)
+                        (new Definition(RoadRunnerEnvironment::class))
                             ->setFactory([Environment::class, 'create'])
                             ->setArguments([
                                 ['RR_RPC' => $config['pool']['roadrunnerRPC']],
                             ]),
                     ]),
             ])
-            ->setPublic(true)
-        ;
+            ->setPublic(true);
+
+        $runtimeWorker = $container->resolveEnvPlaceholders($config['runtime']['worker'] ?? null, true);
 
         $configuredWorkers        = [];
         $activitiesWithoutWorkers = [];
         $workflowsWithoutWorkers  = [];
 
         foreach ($config['workers'] as $workerName => $worker) {
-            $options = definition(WorkerOptions::class)
-                ->setFactory([WorkerOptions::class, 'new'])
-            ;
+            if (!empty($runtimeWorker) && $workerName !== $runtimeWorker) {
+                continue;
+            }
+
+            $options = (new Definition(WorkerOptions::class))->setFactory([WorkerOptions::class, 'new']);
 
             foreach ($worker as $option => $value) {
                 $method = sprintf('with%s', ucfirst($option));
@@ -76,28 +77,27 @@ final class WorkflowCompilerPass implements CompilerPass
                     $worker['taskQueue'],
                     $options,
                     new Reference($worker['exceptionInterceptor']),
-                    definition(SimplePipelineProvider::class)
+                    (new Definition(SimplePipelineProvider::class))
                         ->setArguments([
                             array_map(static fn (string $id): Reference => new Reference($id), $worker['interceptors']),
                         ]),
                 ])
-                ->setPublic(true)
-            ;
+                ->setPublic(true);
 
             foreach ($container->findTaggedServiceIds('temporal.workflow') as $id => $attributes) {
                 $class = $container->getDefinition($id)->getClass();
 
-                if ($class == null) {
+                if ($class === null) {
                     continue;
                 }
 
                 $workerNames = $attributes[0]['workers'] ?? null;
 
-                if ($workerNames == null) {
+                if ($workerNames === null) {
                     $workflowsWithoutWorkers[] = $class;
                 }
 
-                if ($workerNames != null && !in_array($workerName, $workerNames)) {
+                if ($workerNames !== null && !in_array($workerName, $workerNames)) {
                     continue;
                 }
 
@@ -107,18 +107,17 @@ final class WorkflowCompilerPass implements CompilerPass
             foreach ($container->findTaggedServiceIds('temporal.activity') as $id => $attributes) {
                 $class = $container->getDefinition($id)->getClass();
 
-                if ($class == null) {
+                if ($class === null) {
                     continue;
                 }
 
                 $workerNames = $attributes[0]['workers'] ?? null;
 
-                if ($workerNames == null) {
+                if ($workerNames === null) {
                     $activitiesWithoutWorkers[] = $class;
                 }
 
-
-                if ($workerNames != null && !in_array($workerName, $workerNames)) {
+                if ($workerNames !== null && !in_array($workerName, $workerNames)) {
                     continue;
                 }
 
@@ -131,8 +130,8 @@ final class WorkflowCompilerPass implements CompilerPass
 
             foreach ($worker['finalizers'] as $id) {
                 $newWorker->addMethodCall('registerActivityFinalizer', [
-                    definition(Closure::class, [[new Reference($id), 'finalize']])
-                        ->setFactory([Closure::class, 'fromCallable']),
+                    (new Definition(\Closure::class, [[new Reference($id), 'finalize']]))
+                        ->setFactory([\Closure::class, 'fromCallable']),
                 ]);
             }
 
@@ -146,24 +145,21 @@ final class WorkflowCompilerPass implements CompilerPass
                 $factory,
                 $configuredWorkers,
             ])
-            ->setPublic(true)
-        ;
+            ->setPublic(true);
 
 
         $container->register('temporal.worker_debug.command', WorkerDebugCommand::class)
             ->setArguments([
                 '$workers' => $configuredWorkers,
             ])
-            ->addTag('console.command')
-        ;
+            ->addTag('console.command');
 
         $container->register('temporal.workflow_debug.command', WorkflowDebugCommand::class)
             ->setArguments([
                 '$workers'                 => $configuredWorkers,
                 '$workflowsWithoutWorkers' => $workflowsWithoutWorkers,
             ])
-            ->addTag('console.command')
-        ;
+            ->addTag('console.command');
 
 
         $container->register('temporal.activity_debug.command', ActivityDebugCommand::class)
@@ -171,8 +167,7 @@ final class WorkflowCompilerPass implements CompilerPass
                 '$workers'                  => $configuredWorkers,
                 '$activitiesWithoutWorkers' => $activitiesWithoutWorkers,
             ])
-            ->addTag('console.command')
-        ;
+            ->addTag('console.command');
 
 
         foreach ($container->findTaggedServiceIds('temporal.workflow') as $id => $attributes) {

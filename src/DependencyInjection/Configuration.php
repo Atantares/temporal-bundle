@@ -77,6 +77,7 @@ final class Configuration implements BundleConfiguration
             ->fixXmlConfig('client', 'clients')
             ->fixXmlConfig('worker', 'workers')
             ->fixXmlConfig('scheduleClient', 'scheduleClients')
+
             ->children()
             ->scalarNode('defaultClient')
             ->defaultValue('default')
@@ -85,6 +86,7 @@ final class Configuration implements BundleConfiguration
             ->defaultValue('default')
             ->end()
             ->end()
+
             ->children()
             ->arrayNode('pool')
             ->children()
@@ -93,6 +95,21 @@ final class Configuration implements BundleConfiguration
             ->end()
             ->scalarNode('roadrunnerRPC')
             ->cannotBeEmpty()
+            ->end()
+            ->end()
+            ->end()
+            ->end()
+
+            ->children()
+            ->arrayNode('runtime')
+            ->children()
+            ->scalarNode('worker')
+            ->defaultValue(null)
+            ->info(
+                <<<STRING
+                                      Starts only specified worker in runtime. Usable for scaling purposes
+                                    STRING
+            )
             ->end()
             ->end()
             ->end()
